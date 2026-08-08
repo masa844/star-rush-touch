@@ -36,6 +36,21 @@ https://masa844.github.io/star-rush-touch/
 - 画面上の `TAP / SPACE` ボタンでも切り替え可能
 - 攻撃：オート
 
+### PC Hidden Shortcuts
+
+PCでは数字キー `1`〜`8` で攻撃モードを直接切り替えられます。`Space` による順番切り替えもそのまま使用できます。
+
+| Key | Weapon |
+| --- | --- |
+| `1` | `SHOT` |
+| `2` | `HEAVY` |
+| `3` | `WIDE` |
+| `4` | `BIG BANG` |
+| `5` | `LASER` |
+| `6` | `SPIRAL` |
+| `7` | `HOMING` |
+| `8` | `FIREWORK` |
+
 ## Weapons
 
 | Mode | Description |
