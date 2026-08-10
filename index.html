@@ -24,7 +24,7 @@
 const c=document.querySelector('#game'),ctx=c.getContext('2d'),W=c.width,H=c.height;
 const scoreEl=document.querySelector('#score'),stageEl=document.querySelector('#stage'),hpFill=document.querySelector('#hpFill'),hpText=document.querySelector('#hpText'),bossHud=document.querySelector('#bossHud'),bossFill=document.querySelector('#bossFill'),toast=document.querySelector('#toast'),modeBtn=document.querySelector('#modeBtn'),modeName=document.querySelector('#modeName');
 const MODES=['SHOT','HEAVY','WIDE','BIG BANG','LASER','SPIRAL','HOMING','FIREWORK','BUSTER','AEGIS'];let modeIndex=0;
-const stars=[],shots=[],enemies=[],eBullets=[],particles=[],rings=[],busterBursts=[];let score=0,stage=1,time=0,spawnClock=0,stageTime=0,bossDelay=0,boss=null,shake=0,toastT=2.3,pointerDown=false,homingCursor=0,sweepAngle=-Math.PI/2,sweepBossCooldown=0;
+const stars=[],shots=[],enemies=[],eBullets=[],particles=[],rings=[],busterBursts=[];let score=0,stage=1,time=0,spawnClock=0,stageTime=0,bossDelay=0,boss=null,shake=0,toastT=2.3,pointerDown=false,homingCursor=0,sweepAngle=-Math.PI/2,sweepBossCooldown=0,stagePhase='wave',bossWait=0;
 const player={x:W/2,y:H*.77,targetX:W/2,targetY:H*.77,r:18,speed:760,hp:3000,maxHp:3000,inv:0,fire:0};
 const AEGIS_RADIUS=78;let aegisBossStart=null;
 for(let i=0;i<180;i++)stars.push({x:Math.random()*W,y:Math.random()*H,z:.3+Math.random()*2,s:1+Math.random()*2});
@@ -58,13 +58,26 @@ function aegisBossElapsed(){
   return time-aegisBossStart
 }
 function aegisCannonActive(){return aegisBossSequenceActive()&&aegisBossElapsed()>=1.5}
+function aegisBeamActive(){return aegisBossSequenceActive()&&aegisBossElapsed()>=1.0}
+function aegisBarrierActive(){return MODES[modeIndex]==='AEGIS'&&!aegisBeamActive()}
 function aegisVaporize(x,y,r=5){for(let i=0;i<4;i++){let a=Math.random()*Math.PI*2,s=45+Math.random()*95;particles.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s,life:.16+Math.random()*.16,max:.32,c:i%2?'#b9ffff':'#ffffff',r:1.5+Math.random()*Math.min(4,r*.12)})}}
+function aegisCannonHits(circle,progress=1){
+  if(!boss)return false;
+  const sx=player.x,sy=player.y-34,tx=boss.x,ty=boss.y+12,qx=(sx+tx)/2+Math.sin(time*5.5)*28,qy=(sy+ty)/2;
+  const steps=Math.max(1,Math.ceil(28*progress));let px=sx,py=sy;
+  for(let i=1;i<=steps;i++){
+    const t=progress*i/steps,omt=1-t,x=omt*omt*sx+2*omt*t*qx+t*t*tx,y=omt*omt*sy+2*omt*t*qy+t*t*ty;
+    if(lineHitCircle(px,py,x,y,circle,38))return true;
+    px=x;py=y;
+  }
+  return false;
+}
 function updateAegis(dt){
   if(MODES[modeIndex]!=='AEGIS'){aegisBossStart=null;return}
   const elapsed=aegisBossElapsed();
 
-  // During targeting/charge/travel the normal AEGIS barrier remains active.
-  if(!aegisCannonActive()){
+  // The normal barrier remains active only until its energy launches toward the boss.
+  if(aegisBarrierActive()){
     for(let i=eBullets.length-1;i>=0;i--){
       const b=eBullets[i];
       if(Math.hypot(b.x-player.x,b.y-player.y)<=AEGIS_RADIUS+b.r){aegisVaporize(b.x,b.y,b.r);eBullets.splice(i,1)}
@@ -76,8 +89,13 @@ function updateAegis(dt){
     return;
   }
 
-  // Once the energy reaches the boss, all boss fire is suppressed and damage begins.
-  eBullets.length=0;
+  // From launch onward, only boss fire touching the visible portion of the energy path is vaporized.
+  const travel=Math.max(0,Math.min(1,(elapsed-1.0)/.5));
+  for(let i=eBullets.length-1;i>=0;i--){
+    const b=eBullets[i];
+    if(aegisCannonHits(b,travel)){aegisVaporize(b.x,b.y,b.r);eBullets.splice(i,1)}
+  }
+  if(!aegisCannonActive())return;
   if(boss){
     boss.hp-=boss.maxHp*.85*dt;
     shake=Math.max(shake,3.5);
@@ -85,14 +103,14 @@ function updateAegis(dt){
     if(boss.hp<=0)defeatBoss();
   }
 }
-function summonBoss(){enemies.length=0;eBullets.length=0;const hp=3000+stage*520;boss={x:W/2,y:-130,targetY:220,r:78,hp,maxHp:hp,t:0,fire:.8,fan:1.8};bossHud.style.opacity='1';toast.textContent='WARNING · BOSS';toastT=2.3;shake=10}
+function summonBoss(){eBullets.length=0;stagePhase='boss';bossWait=0;const hp=3000+stage*520;boss={x:W/2,y:-130,targetY:220,r:78,hp,maxHp:hp,t:0,fire:.8,fan:1.8};bossHud.style.opacity='1';toast.textContent='WARNING · BOSS';toastT=2.3;shake=10}
 function bossFire(){let a=Math.atan2(player.y-boss.y,player.x-boss.x);for(let i=-3;i<=3;i++){let q=a+i*.13,s=250+stage*7;eBullets.push({x:boss.x,y:boss.y+45,vx:Math.cos(q)*s,vy:Math.sin(q)*s,r:7,damage:8})}}
 function bossFan(){for(let i=0;i<18;i++){let a=Math.PI*.1+Math.PI*.8*(i/17),s=205+stage*5;eBullets.push({x:boss.x,y:boss.y+35,vx:Math.cos(a)*s,vy:Math.sin(a)*s,r:6,damage:6})}}
-function defeatBoss(){aegisBossStart=null;score+=5000*stage;burst(boss.x,boss.y,'#ff61c9',90);rings.push({x:boss.x,y:boss.y,r:35,life:1.25,color:'#fff'});boss=null;bossHud.style.opacity='0';eBullets.length=0;stage++;stageEl.textContent=stage;stageTime=0;bossDelay=2.2;spawnClock=2.2;toast.textContent='STAGE '+stage;toastT=2.2;player.hp=Math.min(player.maxHp,player.hp+300);shake=23}
-function damage(amount){if(MODES[modeIndex]==='AEGIS'||player.inv>0)return;player.hp=Math.max(0,player.hp-amount);player.inv=.12;burst(player.x,player.y,'#ff5577',10);shake=7;if(player.hp<=0){player.hp=player.maxHp;score=0;stage=1;stageEl.textContent=stage;enemies.length=0;eBullets.length=0;boss=null;aegisBossStart=null;bossHud.style.opacity='0';stageTime=0;bossDelay=2;toast.textContent='OVERDRIVE AGAIN';toastT=2.2}}
+function defeatBoss(){aegisBossStart=null;score+=5000*stage;burst(boss.x,boss.y,'#ff61c9',90);rings.push({x:boss.x,y:boss.y,r:35,life:1.25,color:'#fff'});boss=null;bossHud.style.opacity='0';eBullets.length=0;stage++;stageEl.textContent=stage;stageTime=0;stagePhase='wave';bossWait=0;bossDelay=2.2;spawnClock=2.2;toast.textContent='STAGE '+stage;toastT=2.2;player.hp=Math.min(player.maxHp,player.hp+300);shake=23}
+function damage(amount){if(aegisBarrierActive()||player.inv>0)return;player.hp=Math.max(0,player.hp-amount);player.inv=.12;burst(player.x,player.y,'#ff5577',10);shake=7;if(player.hp<=0){player.hp=player.maxHp;score=0;stage=1;stageEl.textContent=stage;enemies.length=0;eBullets.length=0;boss=null;aegisBossStart=null;bossHud.style.opacity='0';stageTime=0;stagePhase='wave';bossWait=0;bossDelay=2;toast.textContent='OVERDRIVE AGAIN';toastT=2.2}}
 function update(dt){time+=dt;toastT-=dt;bossDelay=Math.max(0,bossDelay-dt);player.inv=Math.max(0,player.inv-dt);let dx=player.targetX-player.x,dy=player.targetY-player.y,d=Math.hypot(dx,dy);if(d>3){let step=Math.min(d,player.speed*dt);player.x+=dx/d*step;player.y+=dy/d*step}player.x=Math.max(26,Math.min(W-26,player.x));player.y=Math.max(150,Math.min(H-60,player.y));autoFire(dt);updateBuster(dt);
 for(const s of stars){s.y+=100*s.z*dt;if(s.y>H){s.y=-5;s.x=Math.random()*W}}
-if(!boss&&bossDelay<=0){stageTime+=dt;spawnClock-=dt;if(stageTime>=28+Math.min(8,stage)){summonBoss()}else if(spawnClock<=0){spawnClock=Math.max(.12,.55-stage*.035)*(.55+Math.random()*.45);const waveSize=Math.min(16,1+Math.floor((stage-1)*1.25));for(let k=0;k<waveSize&&enemies.length<140;k++)spawnEnemy()}}
+if(!boss&&bossDelay<=0){if(stagePhase==='wave'){stageTime+=dt;spawnClock-=dt;if(stageTime>=28+Math.min(8,stage)){stagePhase='clearing'}else if(spawnClock<=0){spawnClock=Math.max(.12,.55-stage*.035)*(.55+Math.random()*.45);const waveSize=Math.min(16,1+Math.floor((stage-1)*1.25));for(let k=0;k<waveSize&&enemies.length<140;k++)spawnEnemy()}}else if(stagePhase==='clearing'&&enemies.length===0){stagePhase='boss-wait';bossWait=2}else if(stagePhase==='boss-wait'){bossWait-=dt;if(bossWait<=0)summonBoss()}}
 for(let i=shots.length-1;i>=0;i--){let s=shots[i];if(s.kind==='spiral'&&s.curve){let turn=s.curve*dt,ca=Math.cos(turn),sa=Math.sin(turn),vx=s.vx,vy=s.vy;s.vx=vx*ca-vy*sa;s.vy=vx*sa+vy*ca}if(s.homing){if(!homingTargetAlive(s.target))s.target=acquireHoming();if(s.target){let dx=s.target.x-s.x,dy=s.target.y-s.y,d=Math.hypot(dx,dy)||1,desiredVx=dx/d*1100,desiredVy=dy/d*1100,turn=Math.min(1,dt*52);s.vx+=(desiredVx-s.vx)*turn;s.vy+=(desiredVy-s.vy)*turn;let sp=Math.hypot(s.vx,s.vy)||1;s.vx=s.vx/sp*1100;s.vy=s.vy/sp*1100}}s.x+=s.vx*dt;s.y+=s.vy*dt;s.life-=dt;if(s.kind==='seed'){s.split-=dt;if(s.split<=0){for(let j=0;j<12;j++){let a=Math.PI*2*j/12;shots.push({kind:'burst',x:s.x,y:s.y,vx:Math.cos(a)*455,vy:Math.sin(a)*455,r:6,damage:6,life:2.25,clear:true,split2:.62})}rings.push({x:s.x,y:s.y,r:5,life:.5,color:'#ffe182'});burst(s.x,s.y,'#ff8de9',12);shots.splice(i,1);continue}}if(s.kind==='burst'&&s.split2>0){s.split2-=dt;if(s.split2<=0){let phase=Math.random()*Math.PI*2;for(let j=0;j<6;j++){let a=phase+Math.PI*2*j/6,spd=330+Math.random()*190;shots.push({kind:'spark',x:s.x,y:s.y,vx:Math.cos(a)*spd,vy:Math.sin(a)*spd,r:4,damage:4,life:1.95,clear:true,color:'#66eaff'})}rings.push({x:s.x,y:s.y,r:3,life:.42,color:'#8df3ff'});burst(s.x,s.y,'#66eaff',7);shots.splice(i,1);continue}}if(s.kind==='bomb'&&s.y<H*.52){explodeBomb(s);shots.splice(i,1);continue}if(s.life<=0||s.y<-150||s.y>H+150||s.x<-150||s.x>W+150){shots.splice(i,1);continue}if(s.clear){for(let b=eBullets.length-1;b>=0;b--)if(hit(s,eBullets[b],s.kind==='laser'?12:4)){burst(eBullets[b].x,eBullets[b].y,'#68f7ff',2);eBullets.splice(b,1)}}if(boss&&hit(s,boss,s.kind==='laser'?8:-5)){boss.hp-=s.damage;if(s.kind==='normal'||s.kind==='homing'||s.kind==='burst'||s.kind==='spark')shots.splice(i,1);if(boss.hp<=0){defeatBoss();continue}}for(let j=enemies.length-1;j>=0;j--){let e=enemies[j];if(hit(s,e,s.kind==='laser'?8:0)){e.hp-=s.damage;if(s.kind==='normal'||s.kind==='homing'||s.kind==='burst'||s.kind==='spark')shots.splice(i,1);if(e.hp<=0){destroyEnemy(e);enemies.splice(j,1)}break}}}
 for(let i=enemies.length-1;i>=0;i--){let e=enemies[i];e.t+=dt;e.y+=e.v*dt;if(e.type==='swoop')e.x+=Math.sin(e.t*3.2)*e.side*175*dt;if(e.type==='scout')e.x+=Math.sin(e.t*4+e.y*.01)*55*dt;e.fire-=dt;if(e.fire<=0&&e.y>80&&e.y<H*.68){enemyFire(e);e.fire=(e.type==='tank'?1.1:1.55)*(.75+Math.random()*.6)}if(e.y>H+60){enemies.splice(i,1);continue}if(hit(player,e)){damage(18);enemies.splice(i,1)}}
 if(boss){boss.t+=dt;boss.y+=(boss.targetY-boss.y)*Math.min(1,dt*2);boss.x=W/2+Math.sin(boss.t*.7)*170;boss.fire-=dt;boss.fan-=dt;if(boss.fire<=0){bossFire();boss.fire=Math.max(.42,.86-stage*.02)}if(boss.fan<=0){bossFan();boss.fan=Math.max(1.2,2.2-stage*.035)}bossFill.style.width=(Math.max(0,boss.hp)/boss.maxHp*100)+'%';if(hit(player,boss,-15))damage(28)}
@@ -124,10 +142,11 @@ function drawAegis(){
       const omt=1-travel;
       const ex=omt*omt*sx+2*omt*travel*qx+travel*travel*tx;
       const ey=omt*omt*sy+2*omt*travel*qy+travel*travel*ty;
+      const cx=sx+(qx-sx)*travel,cy=sy+(qy-sy)*travel;
 
       const beam=(width,color,blur,alpha=1)=>{
         ctx.globalAlpha=alpha;ctx.strokeStyle=color;ctx.lineWidth=width;ctx.shadowBlur=blur;ctx.shadowColor=color;
-        ctx.beginPath();ctx.moveTo(sx,sy);ctx.quadraticCurveTo(qx,qy,ex,ey);ctx.stroke();
+        ctx.beginPath();ctx.moveTo(sx,sy);ctx.quadraticCurveTo(cx,cy,ex,ey);ctx.stroke();
       };
       ctx.save();ctx.lineCap='round';ctx.lineJoin='round';
       beam(104,'#4cf8ff',42,.16);
@@ -155,8 +174,8 @@ function drawAegis(){
       }
     }
 
-    // Keep the defensive field visible until the energy has actually connected.
-    if(elapsed<1.5){
+    // The defensive field disappears as soon as its energy launches toward the boss.
+    if(elapsed<1.0){
       const pulse=AEGIS_RADIUS+Math.sin(time*4.2)*3;
       ctx.save();
       let rg=ctx.createRadialGradient(player.x,player.y,player.r*.8,player.x,player.y,pulse);
